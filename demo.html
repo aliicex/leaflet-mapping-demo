@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+    <title>District Pets Demo</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="./css/leaflet_1_3_1.css">
+    <link rel="stylesheet" href="./css/MarkerCluster_1_3_0.css">
+    <link rel="stylesheet" href="./css/MarkerCluster.Default_1_3_0.css">
+    <link rel="stylesheet" href="./css/leaflet-search.css">
+    <link rel="stylesheet" href="./css/ionicons.css">
+    <link rel="stylesheet" href="./css/leaflet.awesome-markers.css">
+    <script src="./js/leaflet_1_3_1.js"></script>
+    <script src="./js/leaflet.markercluster_1_3_0.js"></script>
+    <script src="./js/leaflet.awesome-markers.js"></script>
+    <script src="./js/leaflet-search.js"></script>
+    <script src="./js/leaflet-heat.js"></script>
+    <script src="./js/outTurf.min.js"></script>
+    <script src="./js/d3-geo.v1.min.js"></script>
+    <script src="./data/geo/postcode_districts_uk.js"></script>
+    <script src="./data/geo/postcode_areas_uk.js"></script>
+    <script src="./data/test/data.js"></script>
+
+    <style>
+        body {
+            padding: 0;
+            margin: 0;
+        }
+
+        html,
+        body,
+        #map {
+            height: 100%;
+            width: 100%;
+        }
+
+        .overview-box {
+            padding:5px 10px;
+            background: rgba(0,0,0,0.5);
+            color: #fff;
+            font-size: 11px;
+            line-height: 18px;
+            border-radius: 5px;
+        }
+
+        .overview-box:empty {
+            display: none;
+        }
+
+    </style>
+</head>
+
+<body>
+    <div id="map"></div>
+    <script>
+
+        /**
+         *
+         * Custom UI elements
+         */
+
+        L.AwesomeMarkers.Icon.prototype.options.prefix = 'ion';
+
+        var catIcon = L.AwesomeMarkers.icon({
+            icon: 'ion-ios-paw',
+            markerColor: 'red'
+        });
+
+        var dogIcon = L.AwesomeMarkers.icon({
+            icon: 'ion-ios-paw',
+            markerColor: 'blue'
+        });
+
+        var defaultIcon = L.AwesomeMarkers.icon({
+            icon: 'ion-star',
+            markerColor: 'purple'
+        });
+
+        var myCatIcon = L.AwesomeMarkers.icon({
+            icon: 'ion-ios-paw',
+            markerColor: 'green'
+        });
+
+        var myDogIcon = L.AwesomeMarkers.icon({
+            icon: 'ion-ios-paw',
+            markerColor: 'green'
+        });
+
+        var myDefaultIcon = L.AwesomeMarkers.icon({
+            icon: 'ion-star',
+            markerColor: 'green'
+        });
+
+        var InfoBox = L.Control.extend({
+            options: {
+                // Default control position
+                position: 'bottomright'
+            },
+            onAdd: function (map) {
+                // Create a container with classname and return it
+                return L.DomUtil.create('div', 'overview-box');
+            },
+            setContent: function (content) {
+                // Set the innerHTML of the container
+                this.getContainer().innerHTML = content;
+            }
+        });
+
+
+        /**
+         *
+         * Base maps
+         *
+         */
+
+        // add mapbox Access Token here
+        var mapboxAccessToken = "redacted";
+
+        var map;
+
+        L.Icon.Default.imagePath = './images/';
+
+        var attribution = '&copy <a href=\"https://www.mapbox.com/about/maps/\">Mapbox</a> &copy <a href=\"http://www.openstreetmap.org/copyright\">OpenStreetMap</a> <strong><a href=\"https://www.mapbox.com/map-feedback/\" target=\"_blank\">Improve this map</a></strong>';
+
+        var b1 = L.tileLayer('https://api.tiles.mapbox.com/v4/{id}/{z}/{x}/{y}.png?access_token=' + mapboxAccessToken, {
+            attribution: attribution,
+            id: 'mapbox.streets',
+            maxZoom: 20
+        });
+
+        var b2 = L.tileLayer('https://api.tiles.mapbox.com/v4/{id}/{z}/{x}/{y}.png?access_token=' + mapboxAccessToken, {
+            attribution: attribution,
+            id: 'mapbox.light',
+            maxZoom: 20
+        });
+
+        var b4 = L.tileLayer('https://api.tiles.mapbox.com/v4/{id}/{z}/{x}/{y}.png?access_token=' + mapboxAccessToken, {
+            attribution: attribution,
+            id: 'mapbox.high-contrast',
+            maxZoom: 20
+        });
+
+        var b3 = L.tileLayer('https://api.tiles.mapbox.com/v4/{id}/{z}/{x}/{y}.png?access_token=' + mapboxAccessToken, {
+            attribution: attribution,
+            id: 'mapbox.pirates',
+            maxZoom: 20
+        });
+
+
+        var baseLayers = {};
+
+        baseLayers["Default"] = b1;
+        baseLayers["Light"] = b2;
+        baseLayers["Contrast"] = b4;
+        baseLayers["Pirates!"] = b3;
+
+        map = L.map('map', {
+            layers: [b1],
+            scrollWheelZoom: false
+        });
+
+        map.setView([54.65327, -3.939282], 6);
+
+        /**
+         *
+         * Functions
+         *
+         */
+
+        function districtFeatureIterator (feature, layer) {
+
+            /*
+				// polygon calcs for debugging
+                if (feature.geometry.type === 'Polygon') {
+                    var bounds = layer.getBounds();
+                    var centroid = bounds.getCenter();
+                }
+                */
+
+            var districtDogCount = 0;
+            var districtCatCount = 0;
+            var districtOtherCount = 0;
+            var districtTotal = 0;
+
+            var grandDogCount = 0;
+            var grandCatCount = 0;
+            var grandOtherCount = 0;
+            var grandTotal = 0;
+
+            var m;
+
+            for (var i = 0; i < data.length; i++) {
+
+                switch (data[i].pet) {
+
+                    case "dog":
+                        grandDogCount++;
+                        grandTotal++;
+                        break;
+                    case "cat":
+                        grandCatCount++;
+                        grandTotal++;
+                        break;
+                    default:
+                        grandOtherCount++;
+                        grandTotal++;
+                        break;
+                }
+
+
+                if (feature.properties.name === data[i].district) {
+                    // generate random position within the polygon
+                    var bbox = turf.bbox(feature);
+
+                    var p = turf.random.randomPosition(bbox);
+
+                    while (!d3.geoContains(feature, p)) {
+                        p = turf.random.randomPosition(bbox);
+                    }
+
+                    p = p.reverse();
+
+                    heatLayer.addLatLng(p);
+
+                    switch (data[i].pet) {
+
+                        case "dog":
+
+                            districtDogCount++;
+                            districtTotal++;
+
+                            m = L.marker(p, {
+                                icon: dogIcon
+                            }).bindPopup('Woof!');
+                            dogClusters.addLayer(m);
+                            break;
+                        case "cat":
+
+                            districtCatCount++;
+                            districtTotal++;
+
+                            m = L.marker(p, {
+                                icon: catIcon
+                            }).bindPopup('Meow');
+                            catClusters.addLayer(m);
+                            break;
+
+                        default:
+                            districtOtherCount++;
+                            districtTotal++;
+                            m = L.marker(p, {
+                                icon: defaultIcon
+                            }).bindPopup('Pet');
+                            otherClusters.addLayer(m);
+                            break;
+
+
+                    }
+
+                }
+            }
+
+            var districtText = 'District: ' + feature.properties.name + ' (Dogs: ' + districtDogCount + ', Cats: ' + districtCatCount + ', Other: ' + districtOtherCount + ', Total: ' + districtTotal + ')';
+            var districtPopup = '<h2>' + feature.properties.name + '</h2>' + 'Dogs: ' + districtDogCount + '<br/> Cats: ' + districtCatCount + '<br/> Other: ' + districtOtherCount + '<br/> Total: ' + districtTotal;
+            var popup = L.popup().setContent(districtPopup);
+
+            var overviewBoxContent = '<h2>UK Pet Amnesty</h2>Total Dogs: ' + grandDogCount + '</br>Total Cats: ' + grandCatCount + '</br>Total Other: ' + grandOtherCount + '</br>Total Pets: ' + grandTotal;
+            overviewBox.setContent(overviewBoxContent);
+            layer.bindPopup(popup).on('click', onClick);
+
+            layer.on('mouseover', function (e) {
+                //this.openPopup();
+                districtBox.setContent(districtText);
+                e.target.setStyle({stroke: false, fill: true, weight: 2, color: '#000000'});
+
+                if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) {
+                    e.target.bringToFront();
+                }
+            });
+
+            layer.on('mouseout', function (e) {
+                //this.closePopup();
+                e.target.setStyle({stroke: true, fill: false, weight: 2, color: '#000000'});
+            });
+
+        }
+
+        /**
+         *
+         * Overlays
+         *
+         */
+
+        var catClusters = L.markerClusterGroup({ chunkedLoading: true });
+        var dogClusters = L.markerClusterGroup({ chunkedLoading: true });
+        var otherClusters = L.markerClusterGroup({ chunkedLoading: true });
+        var areaLayer = L.geoJSON(areas, {style: {fill: false, weight: 4}});
+        var heatLayer = L.heatLayer([]).addTo(map);
+
+        var overlayLayers = {};
+
+        overlayLayers["Heatmap"] = heatLayer;
+        overlayLayers["Postcode Areas"] = areaLayer;
+        overlayLayers["Cats"] = catClusters;
+        overlayLayers["Dogs"] = dogClusters;
+        overlayLayers["Other"] = otherClusters;
+
+        var positionBox =  new InfoBox().addTo(map);
+        var districtBox = new InfoBox().addTo(map);
+        var overviewBox =  new InfoBox().addTo(map);
+
+        districtBox.setContent('District: none');
+        positionBox.setContent('Waiting for position data');
+
+        // load the districts
+        var districtLayer = L.geoJSON(districts, {
+            style: {stroke: false, fill: false},
+            onEachFeature: districtFeatureIterator
+        });
+
+        /**
+         *
+         * Custom Controls & Behaviours
+         *
+         */
+
+        map.on('mousemove', function (e) {
+            positionBox.setContent(e.latlng);
+        });
+
+        var searchControl = new L.Control.Search({
+            layer: districtLayer,
+            zoom: 13,
+            propertyName: 'name',
+            marker: false,
+            moveToLocation: function(latlng, title, map) {
+                var zoom = map.getBoundsZoom(latlng.layer.getBounds());
+                map.setView(latlng, zoom); // access the zoom
+            }
+        });
+
+        searchControl.on('search:locationfound', function(e) {
+
+            e.layer.setStyle({
+                fillColor: '#3388ff',
+                color: '#3388ff',
+                stroke: true,
+                fill: true
+            });
+            if (e.layer._popup) {
+                e.layer.openPopup();
+            }
+
+        }).on('search:collapsed', function(e) {
+            districtLayer.eachLayer(function(layer) { //restore feature colour
+                districtLayer.resetStyle(layer);
+            });
+        });
+
+        map.addControl(searchControl); //initialize search control
+
+        var layerControl = L.control.layers(baseLayers, overlayLayers, {
+            collapsed: false
+        }).addTo(map);
+
+        map.on('zoomend', function() {
+
+            //console.log(map.getZoom());
+
+            if (map.getZoom() <13){
+                if (map.hasLayer(districtLayer)) {
+                    map.removeLayer(districtLayer);
+                } else {
+                    //console.log("layer not active");
+                }
+            }
+            if (map.getZoom() >= 13){
+                if (map.hasLayer(districtLayer)){
+                    //console.log("layer already added");
+                } else {
+                    districtLayer.setStyle({stroke: true, fill: false, weight: 2, color: '#000000'});
+                    map.addLayer(districtLayer);
+                }
+            }
+        });
+
+        function onClick(event) {
+            event.target.closePopup();
+        }
+
+
+        /**
+         *
+         * Process the URL parameters to allow instant plotting
+         */
+
+        // Get url parameters
+        var params = {};
+        window.location.href.replace(/[?&]+([^=&]+)=([^&]*)/gi, function(m, key, value) {
+            params[key] = value;
+        });
+
+        // if params passed, try to do something smart with them
+        if (params.postcode) {
+
+            var pledge = L.geoJSON(districts, {
+                filter: function(feature) {
+                    if (feature.properties.name === params.postcode) {
+                        return true;
+                    }
+                },
+                onEachFeature: function(feature, layer) {
+
+                    var bounds = layer.getBounds();
+                    var centroid = bounds.getCenter();
+
+                    if (map.hasLayer(dogClusters)) {
+                        map.removeLayer(dogClusters);
+                    }
+
+                    if (map.hasLayer(catClusters)) {
+                        map.removeLayer(catClusters);
+                    }
+
+                    if (map.hasLayer(otherClusters)) {
+                        map.removeLayer(otherClusters);
+                    }
+
+                    if (map.hasLayer(districtLayer)) {
+                        map.removeLayer(districtLayer);
+                    }
+
+                    if (map.hasLayer(heatLayer)) {
+                        map.removeLayer(heatLayer);
+                    }
+
+                    map.flyTo(centroid, 13);
+
+                    if(params.pledge) {
+
+                        var popup = L.popup({autoClose: false}).setContent('<h2>Thanks!</h2><p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Morbi auctor blandit massa, et elementum elit.</p><p>To find out more please visit <a href=#>the Pet Amnesty homepage</a></p>');
+
+                        switch (params.pledge) {
+
+                            case "dog":
+                                m = L.marker(centroid, {
+                                    icon: myDogIcon
+                                }).bindPopup(popup).addTo(map);
+
+                                dogClusters.addLayer(m);
+
+                                break;
+
+                            case "cat":
+                                m = L.marker(centroid, {
+                                    icon: myCatIcon
+                                }).bindPopup(popup).addTo(map);
+
+                                catClusters.addLayer(m);
+
+                                break;
+
+                            default:
+                                m = L.marker(centroid, {
+                                    icon: myDefaultIcon
+                                }).bindPopup(popup).addTo(map);
+
+                                otherClusters.addLayer(m);
+                                break;
+
+                        }
+
+                        m.openPopup();
+                        //var myLayer = L.layerGroup([m]);
+                        //layerControl.addOverlay(myLayer, "My Pledge");
+
+                    }
+
+                }
+
+            });
+        }
+
+
+    </script>
+</body>
+
+</html>
